@@ -2,6 +2,8 @@
   <dictionary name="takuro">
     <words>
       <w>minecraft</w>
+      <w>octree</w>
+      <w>voxcel</w>
       <w>voxel</w>
     </words>
   </dictionary>
