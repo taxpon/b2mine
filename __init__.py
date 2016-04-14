@@ -2,6 +2,7 @@
 import os
 import sys
 import time
+import pickle
 
 if "bpy" in locals():
     import importlib
@@ -18,9 +19,6 @@ import bpy  # noqa
 from bpy.props import *  # noqa
 from mathutils import Vector  # noqa
 
-# sys.path.append(os.path.dirname(__file__))
-# import mcpi.minecraft as minecraft  # noqa
-# import mcpi.block as block  # noqa
 
 bl_info = {
     "name": "Blender2Minecraft",
@@ -28,7 +26,8 @@ bl_info = {
 }
 
 
-block_map = None
+class Global(object):
+    ID_BLOCK_MAP = "block_map"
 
 
 class MineManager(object):
@@ -47,31 +46,30 @@ class MineManager(object):
         self.mc.setBlock(pos.x, pos.y + 1, pos.z + 1, block.STONE)
 
     def set_bunch_of_blocks(self):
-        global block_map
+
+        obj = bpy.context.active_object
+        if Global.ID_BLOCK_MAP not in obj:
+            raise Exception("No block data")
+
+        block_map = pickle.loads(obj[Global.ID_BLOCK_MAP])
+
         pos = self.mc.player.getPos()
-        for z in range(len(block_map)):
-            for y in range(len(block_map[0])):
-                for x in range(len(block_map[0][0])):
-                    this_block = block_map[z][y][x]
-                    if this_block.has_block:
-                        if this_block.color:
-                            self.mc.setBlock(
-                                pos.x + x/2.0,
-                                pos.y + y/2.0,
-                                pos.z + z/2.0,
-                                this_block.block_type,
-                                this_block.color
-                            )
-                        else:
-                            self.mc.setBlock(
-                                pos.x + x/2.0,
-                                pos.y + y/2.0,
-                                pos.z + z/2.0,
-                                this_block.block_type
-                            )
-                        print(x/2.0, y/2.0, z/2.0, this_block.block_type, this_block.color)
-
-
+        for this_block in block_map:
+            if this_block.color:
+                self.mc.setBlock(
+                    pos.x + this_block.pos[0]/2.0,
+                    pos.y + this_block.pos[2]/2.0,
+                    pos.z - this_block.pos[1]/2.0,
+                    this_block.block_type,
+                    this_block.color
+                )
+            else:
+                self.mc.setBlock(
+                    pos.x + this_block.pos[0]/2.0,
+                    pos.y + this_block.pos[2]/2.0,
+                    pos.z - this_block.pos[1]/2.0,
+                    this_block.block_type
+                )
 
 
 mm = MineManager()
@@ -81,33 +79,19 @@ class MineConnectOperator(bpy.types.Operator):
     bl_idname = "ws_takuro.mine_connect"
     bl_label = "Connect"
 
+    def __init__(self, *args, **kwargs):
+        super(MineConnectOperator, self).__init__(*args, **kwargs)
+        bpy.context.scene.McStatus = "DISCONNECTED"
+
     def execute(self, context):
         mm.connect()
-        print("Connected")
+        context.scene.McStatus = "CONNECTED"
         return {"FINISHED"}
 
 
-class MineGetPosOperator(bpy.types.Operator):
-    bl_idname = "ws_takuro.mine_get_pos"
-    bl_label = "getPos"
-
-    def execute(self, context):
-        print(mm.get_pos())
-        return {"FINISHED"}
-
-
-class MineSetBlockOperator(bpy.types.Operator):
-    bl_idname = "ws_takuro.mine_set_block"
-    bl_label = "setBlock"
-
-    def execute(self, context):
-        mm.set_block()
-        return {"FINISHED"}
-
-
-class MineSetMultipleBlocksOperator(bpy.types.Operator):
-    bl_idname = "ws_takuro.mine_set_multiple_blocks"
-    bl_label = "setMultiBlocks"
+class MCSendBlocksOperator(bpy.types.Operator):
+    bl_idname = "ws_takuro.mc_send_blocks"
+    bl_label = "Send blocks"
 
     def execute(self, context):
         mm.set_bunch_of_blocks()
@@ -122,10 +106,6 @@ class Convert2BlockOperator(bpy.types.Operator):
         context.scene['NumOctree'] = 3
 
         obj = context.active_object
-        scene = context.scene
-        # obj.modifiers.new("Triangulate", "TRIANGULATE")
-        # bpy.ops.object.modifier_apply(apply_as="DATA", modifier="Triangulate")
-
         u = max(obj.dimensions)/2.0
         total = Vector()
         for vec in [Vector(x) for x in obj.bound_box]:
@@ -146,21 +126,22 @@ class Convert2BlockOperator(bpy.types.Operator):
         cvt = convert2block.Converter(obj)
         octree = obj["Octree"] if "Octree" in obj else convert2block.Converter.DEFAULT_OCTREE
 
-        global block_map
         block_map = cvt.invoke(cvt.decimated, initial_bb, octree)
+        bpy.context.active_object["block_map"] = pickle.dumps(block_map)
 
         return {"FINISHED"}
 
 
-class B2MinePanel(bpy.types.Panel):
+sample_text = "aaaa"
+
+
+class BlockConversionPanel(bpy.types.Panel):
     """Creates a Panel in the Object properties window"""
-    bl_label = "B2Mine"
+    bl_label = "BlockConversion"
     bl_idname = "OBJECT_PT_b2mine"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "object"
-
-    INITIALIZED = False
 
     def draw(self, context):
         layout = self.layout
@@ -170,24 +151,47 @@ class B2MinePanel(bpy.types.Panel):
         row.prop(obj, "Octree")
         row.operator("ws_takuro.convert2block")
 
-        row = layout.row()
+
+class MinecraftPanel(bpy.types.Panel):
+    bl_label = "Minecraft"
+    bl_idname = "OBJECT_PT_mine"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "object"
+
+    def draw(self, context):
+        layout = self.layout
+
+        obj = context.object
+        scene = context.scene
+
+        box = layout.box()
+        row = box.row()
+
+        if scene.McStatus == "CONNECTED":
+            row.label("Connected", icon="FILE_TICK")
+        else:
+            row.label("Disconnected", icon="ERROR")
+
+        row = box.row()
+        row.prop(scene, "McIpAddr", text="IP addr")
+        row.prop(scene, "McPort", text="Port number")
+
+        row = box.row()
+        row.alignment = 'RIGHT'
         row.operator("ws_takuro.mine_connect")
-        row.operator("ws_takuro.mine_get_pos")
 
         row = layout.row()
-        row.operator("ws_takuro.mine_set_block")
-
-        row = layout.row()
-        row.operator("ws_takuro.mine_set_multiple_blocks")
-
-    def start_server(self):
-        mc = minecraft.Minecraft.create()
-        pos = mc.player.getPos()
-        print(pos)
-        pass
+        row.operator("ws_takuro.mc_send_blocks")
 
 
 def register():
+    connection_status = [
+        ("DISCONNECTED", "Disconnected", "", 0),
+        ("CONNECTED", "Connected", "", 1),
+        ("FAILED", "Failed", "", 2),
+    ]
+
     bpy.types.Object.Octree = IntProperty(
         name="Octree",
         description="Enter an integer",
@@ -196,22 +200,38 @@ def register():
         default=3
     )
 
-    bpy.utils.register_class(MineConnectOperator)
-    bpy.utils.register_class(MineGetPosOperator)
-    bpy.utils.register_class(MineSetBlockOperator)
-    bpy.utils.register_class(MineSetMultipleBlocksOperator)
+    bpy.types.Scene.McStatus = EnumProperty(
+        items=connection_status,
+        name='mc_status',
+        description='Status of connection to Minecraft Server',
+        default="DISCONNECTED"
+    )
 
+    bpy.types.Scene.McIpAddr = StringProperty(
+        name='ip',
+        description='IP address of server',
+        default='127.0.0.1'
+    )
+
+    bpy.types.Scene.McPort = IntProperty(
+        name='port',
+        description='Port number of server',
+        default=4711
+    )
+
+    bpy.utils.register_class(MineConnectOperator)
+    bpy.utils.register_class(MCSendBlocksOperator)
     bpy.utils.register_class(Convert2BlockOperator)
-    bpy.utils.register_class(B2MinePanel)
+    bpy.utils.register_class(BlockConversionPanel)
+    bpy.utils.register_class(MinecraftPanel)
 
 
 def unregister():
     bpy.utils.unregister_class(MineConnectOperator)
-    bpy.utils.unregister_class(MineGetPosOperator)
-    bpy.utils.unregister_class(MineSetBlockOperator)
-    bpy.utils.unregister_class(MineSetMultipleBlocksOperator)
+    bpy.utils.unregister_class(MCSendBlocksOperator)
     bpy.utils.unregister_class(Convert2BlockOperator)
-    bpy.utils.unregister_class(B2MinePanel)
+    bpy.utils.unregister_class(BlockConversionPanel)
+    bpy.utils.unregister_class(MinecraftPanel)
 
 # bpy.utils.register_module(__name__)
 

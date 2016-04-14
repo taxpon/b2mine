@@ -13,6 +13,7 @@ from multiprocessing import Manager
 
 from functools import wraps
 
+from . import voxel
 from . import block_def
 from .block_def import BlockDef
 
@@ -21,26 +22,39 @@ from mathutils import Vector
 if "BlockDef" in locals():
     import importlib
     importlib.reload(block_def)
+    importlib.reload(voxel)
+
+
+elapsed_indent = 0
 
 
 def elapsed(func):
+
     @wraps(func)
-    def _elapsed(*args, **kwargs):
+    def __elapsed(*args, **kwargs):
+        global elapsed_indent
+        print("{}Start ({})".format(
+            "    " * elapsed_indent,
+            func.__name__
+        ))
+        elapsed_indent += 1
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
+        elapsed_indent -= 1
 
-        print("Elapsed ({}) = {} [milliseconds]".format(
+        print("{}End   ({}) = {} [milliseconds]".format(
+            "    " * elapsed_indent,
             func.__name__,
             (end - start) * 1000
         ))
         return result
-    return _elapsed
+    return __elapsed
 
 
 class BlockInfo(object):
 
-    def __init__(self, has_block, block_type, color=None):
+    def __init__(self, has_block, block_type, color=None, pos=None):
         """
         :param bool has_block:
         :param int block_type:
@@ -48,16 +62,20 @@ class BlockInfo(object):
         self._has_block = has_block
         self._block_type = block_type
         self._color = color
+        self._pos = pos
 
-    def update(self, has_block, block_type, color=None):
+    def update(self, has_block, block_type, color=None, pos=None):
         self._has_block = has_block
         self._block_type = block_type
         self._color = color
+        self._pos = pos
 
     def to_dict(self):
         return {
             "has_block": self._has_block,
-            "block_type": self._block_type
+            "block_type": self._block_type,
+            "color": self._color,
+            "pos": self._pos
         }
 
     @property
@@ -72,28 +90,34 @@ class BlockInfo(object):
     def color(self):
         return self._color
 
+    @property
+    def pos(self):
+        return self._pos
+
 
 class Converter(object):
 
     TARGET_NUM_FACET = 2000
     DEFAULT_OCTREE = 3
 
+    @elapsed
     def __init__(self, src):
         self.src = src
         self.decimated = None
         self.src_kd = None
         self.voxel_list = Manager().list()
         self.mesh_list = Manager().list()
-        self.queue = Queue()
         self.color_dict = {}
         self.parent = None
-        self.block_map = []
+        self.block_map = Manager().list()
         self.unit = None
+        self.join = True
 
         # Initial procedure
         self.__calc_decimated()
         self.__build_src_kd()
         self.__create_color_dict()
+        bpy.ops.object.select_all(action="DESELECT")
 
     @elapsed
     def __calc_decimated(self):
@@ -113,6 +137,7 @@ class Converter(object):
         self.decimated.modifiers["Decimate"].ratio = ratio
         bpy.ops.object.modifier_apply(apply_as="DATA", modifier="DECIMATE")
 
+    @elapsed
     def __build_src_kd(self):
         mesh = self.decimated.data
         size = len(mesh.vertices)
@@ -122,12 +147,19 @@ class Converter(object):
             self.src_kd.insert(v.co, i)
         self.src_kd.balance()
 
+    @elapsed
     def __create_color_dict(self):
         for i, loop in enumerate(self.decimated.data.loops):
             vi = loop.vertex_index
             if vi not in self.color_dict:
                 self.color_dict[vi] = i
 
+    @elapsed
+    def apply_join(self):
+        if self.join:
+            bpy.ops.object.join()
+
+    @elapsed
     def cleanup(self):
         bpy.context.scene.objects.unlink(self.decimated)
 
@@ -257,28 +289,21 @@ class Converter(object):
         bvh_tree2 = Converter.get_bvhtree_from_box(box)
         return bvh_tree1.overlap(bvh_tree2)
 
+    @elapsed
     def invoke(self, obj, box, max_depth):
         try:
             self.invoke_create_voxel(obj, box, max_depth)
             self.draw_voxel(origin=box[0])
         finally:
             # Post procedure
+            self.apply_join()
             self.cleanup()
-            return self.block_map
+            return list(self.block_map)
 
     @elapsed
     def invoke_create_voxel(self, obj, box, max_depth):
-        # Create block map
-        for z in range(2 ** max_depth):
-            self.block_map.append([])
-            for y in range(2 ** max_depth):
-                self.block_map[z].append([])
-                for x in range(2 ** max_depth):
-                    self.block_map[z][y].append(BlockInfo(False, 1))
-
         # Calc unit length
         self.unit = (box[1].z - box[0].z) / float(2 ** max_depth)
-        print("Unit length:{}", self.unit)
 
         overlap = Converter.check_if_overlap(obj, box)
         if overlap:
@@ -295,6 +320,14 @@ class Converter(object):
             [job.join() for job in jobs]
 
     def create_voxel(self, obj, box, depth, queue, max_depth=3):
+        """For multiprocessing
+        :param obj:
+        :param box:
+        :param depth:
+        :param queue:
+        :param max_depth:
+        :return:
+        """
         depth += 1
 
         overlap = Converter.check_if_overlap(obj, box)
@@ -306,7 +339,13 @@ class Converter(object):
                 for _child in boxes:
                     self.create_voxel(obj, _child, depth, queue, max_depth)
 
-    def calc_mesh_and_color(self, voxel_list, mesh_list):
+    def calc_mesh_and_color(self, voxel_list, mesh_list, block_list, origin):
+        """For multiprocessing
+        :param list voxel_list:
+        :param list mesh_list:
+        :param list block_list:
+        :param mathutils.Vector origin:
+        """
         faces = ((0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
                  (1, 5, 6, 2), (2, 3, 7, 6), (4, 0, 3, 7))
 
@@ -324,14 +363,25 @@ class Converter(object):
 
             mesh_list.append((voxel, tuple(rgb)))
 
+            ix = int(round((voxel[0][0] - origin.x) / self.unit))
+            iy = int(round((voxel[0][1] - origin.y) / self.unit))
+            iz = int(round((voxel[0][2] - origin.z) / self.unit))
+            col_def = BlockDef.find_nearest_color_block(Vector(rgb))
+
+            block_list.append(BlockInfo(
+                has_block=True,
+                block_type=col_def.block_def[0],
+                color=col_def.block_def[1],
+                pos=(ix, iy, iz)
+            ))
+
     @elapsed
     def draw_voxel(self, origin):
         # Add null object
         self.parent = bpy.data.objects.new("Voxcel", bpy.data.meshes.new("Voxcel"))
         bpy.context.scene.objects.link(self.parent)
-
-        faces = ((0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
-                 (1, 5, 6, 2), (2, 3, 7, 6), (4, 0, 3, 7))
+        bpy.context.scene.objects.active = self.parent
+        self.parent.select = True
 
         def chunks(l, n):
             """Yield successive n-sized chunks from l."""
@@ -346,42 +396,25 @@ class Converter(object):
 
         jobs = []
         for chunk in chunk_list:
-            p = Process(
+            job = Process(
                 target=self.calc_mesh_and_color,
-                args=(chunk, self.mesh_list)
+                args=(chunk, self.mesh_list, self.block_map, origin)
             )
-            jobs.append(p)
-            p.start()
+            jobs.append(job)
+            job.start()
 
         [job.join() for job in jobs]
 
-        for i, item in enumerate(self.mesh_list):
-            voxel = item[0]
-            rgb = item[1]
-            obj_name = "Cube.%06d" % i
-            mesh = bpy.data.meshes.new("cube_mesh_data")
-            mesh.from_pydata(voxel, [], faces)
-            mesh.update()
+        @elapsed
+        def add_voxels():
+            for i, item in enumerate(self.mesh_list):
+                vertices = item[0]
+                color = item[1]
+                name = "Cube.%010d" % i
 
-            mesh.vertex_colors.new()
-            j = 0
-            for poly in mesh.polygons:
-                for idx in poly.loop_indices:
-                    mesh.vertex_colors["Col"].data[j].color = rgb
-                    j += 1
+                voxel.Voxel(name, vertices, color).create().add(
+                    scene=bpy.context.scene,
+                    parent=self.parent
+                )
 
-            cube_object = bpy.data.objects.new(obj_name, mesh)
-            bpy.context.scene.objects.link(cube_object)
-            cube_object.select = True
-            cube_object.parent = self.parent
-
-            # Update block map
-            ix = int(round((voxel[0][0] - origin.x) / self.unit))
-            iy = int(round((voxel[0][1] - origin.y) / self.unit))
-            iz = int(round((voxel[0][2] - origin.z) / self.unit))
-            # print(ix, iy, iz)
-
-            col_def = BlockDef.find_nearest_color_block(Vector(rgb))
-            self.block_map[iz][iy][ix].update(True, col_def.block_def[0], col_def.block_def[1])
-            # print(i, self.block_map[iz][iy][ix].to_dict())
-
+        add_voxels()

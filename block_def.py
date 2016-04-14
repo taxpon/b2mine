@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import logging
 from mathutils import Vector
 
 
@@ -249,12 +250,12 @@ class BlockDef(object):
     def find_nearest_color_block(target_color):
         min_dist = 10
         min_index = 0
-        print("Target_color: {}".format(target_color.to_tuple()))
+        logging.debug("Target_color: {}".format(target_color.to_tuple()))
         for i, block in enumerate(BlockDef.BLOCK_LIST):
             dist = (block.color - target_color).length
-            print("    i = {}, dist = {}".format(i, dist))
+            logging.debug("    i = {}, dist = {}".format(i, dist))
             if dist < min_dist:
                 min_index = i
                 min_dist = dist
-        print("    min_index is '{}'".format(min_index))
+        logging.debug("    min_index is '{}'".format(min_index))
         return BlockDef.BLOCK_LIST[min_index]
