@@ -7,12 +7,17 @@ What?
 -----
 This add-on convert colored 3D model into block from. You can send the converted model to minecraft server embedding `raspberry juice <http://dev.bukkit.org/bukkit-plugins/raspberryjuice/>`_ API.
 
+Convert
+^^^^^^^
+.. image:: http://g.recordit.co/9D81OxL7LC.gif
+
 
 Install
 -------
-1. Download zip of b2mine from this page
-2. Unzip it and locate unzipped directory to your blender's add-on directory
-3. This add-on is using `py3minepi <https://github.com/py3minepi/py3minepi>`_, so download the library and locate mcpi folder just under the b2mine directory
+1. Download zip of b2mine from this page.
+2. Unzip it and locate unzipped directory to your blender's add-on directory.
+3. This add-on is using `py3minepi <https://github.com/py3minepi/py3minepi>`_, so download the library and locate mcpi folder just under the b2mine directory.
+4. Enable this add-on from your blender's preferences
 
 Dependency
 ----------

@@ -1,7 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
-import sys
-import time
 import pickle
 
 if "bpy" in locals():
@@ -22,7 +19,13 @@ from mathutils import Vector  # noqa
 
 bl_info = {
     "name": "Blender2Minecraft",
-    "category": "Object",
+    'author': 'Takuro Wada',
+    'version': (0, 1, 0),
+    'blender': (2, 76, 0),
+    'description': 'Blender add-on to convert object with into colored blocks and transfer it to minecraft',
+    'tracker_url': 'https://github.com/taxpon/b2mine',
+    'support': 'COMMUNITY',
+    'category': 'Object'
 }
 
 
@@ -34,6 +37,7 @@ class MineManager(object):
 
     def __init__(self):
         self.mc = None
+        self.connected = False
 
     def connect(self):
         self.mc = minecraft.Minecraft.create()
