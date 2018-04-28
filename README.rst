@@ -7,6 +7,14 @@ What?
 -----
 This add-on convert colored 3D model into block from. You can send the converted model to minecraft server embedding `raspberry juice <http://dev.bukkit.org/bukkit-plugins/raspberryjuice/>`_ API.
 
+Document
+^^^^^^^^
+You can find more documents related to this project.
+
+- https://www.slideshare.net/TakuroWada/3d-modeling-and-printing-by-python
+- https://www.slideshare.net/TakuroWada/blenderminecraft
+- https://www.kabuku.co.jp/developers/blender2minecraft-by-python
+
 Convert
 ^^^^^^^
 .. image:: http://g.recordit.co/9D81OxL7LC.gif
