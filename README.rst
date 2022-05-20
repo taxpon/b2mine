@@ -5,7 +5,7 @@ Blender add-on to transfer color object to minecraft.
 
 What?
 -----
-This add-on convert colored 3D model into block from. You can send the converted model to minecraft server embedding `raspberry juice <http://dev.bukkit.org/bukkit-plugins/raspberryjuice/>`_ API.
+This add-on converts colored 3D model into block form. You can send the converted model to minecraft server embedding `raspberry juice <http://dev.bukkit.org/bukkit-plugins/raspberryjuice/>`_ API.
 
 Document
 ^^^^^^^^
